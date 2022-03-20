@@ -1,13 +1,19 @@
 CONFIG_MODULE_SIG = n
-TARGET_MODULE := fibdrv
+TARGET_MODULE := _fibdrv
 
 obj-m := $(TARGET_MODULE).o
 ccflags-y := -std=gnu99 -Wno-declaration-after-statement
+
+_fibdrv-objs := \
+	fibdrv.o \
+	sstring.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
 GIT_HOOKS := .git/hooks/applied
+
+.PHONY: time
 
 all: $(GIT_HOOKS) client
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
@@ -18,7 +24,7 @@ $(GIT_HOOKS):
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	$(RM) client out
+	$(RM) client out time time.txt
 load:
 	sudo insmod $(TARGET_MODULE).ko
 unload:
@@ -26,6 +32,12 @@ unload:
 
 client: client.c
 	$(CC) -o $@ $^
+
+time: client_ktime.c
+	sudo sh performance.sh
+	$(CC) -o $@ $<
+	sudo taskset 0x1 ./time
+	gnuplot < runtime.gp
 
 PRINTF = env printf
 PASS_COLOR = \e[32;01m

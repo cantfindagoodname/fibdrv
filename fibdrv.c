@@ -7,6 +7,8 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 
+#include "sstring.h"
+
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
 MODULE_DESCRIPTION("Fibonacci engine driver");
@@ -17,26 +19,83 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 92
+#define MAX_LENGTH 500
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
 
-static long long fib_sequence(long long k)
+static ktime_t kt;
+
+void fib_sequence(long long n, sstring_t *out)
 {
-    /* FIXME: C99 variable-length array (VLA) is not allowed in Linux kernel. */
-    long long f[k + 2];
-
-    f[0] = 0;
-    f[1] = 1;
-
-    for (int i = 2; i <= k; i++) {
-        f[i] = f[i - 1] + f[i - 2];
+    if (n == 0) {
+        *out = str_assign("0", 1);
+        return;
     }
+    sstring_t *a = str_new();
+    sstring_t *b = str_new();
 
-    return f[k];
+    sstring_t *two = str_new();
+    *two = str_assign("2", 1);
+
+    *a = str_assign("0", 1);
+    *b = str_assign("1", 1);
+
+    for (int i = 64 - __builtin_clzll(n); i >= 0; --i) {
+        sstring_t *tmp1 = str_new();
+        sstring_t *t1 = str_new();
+        sstring_t *t2 = str_new();
+
+        str_mul(b, two, tmp1);
+        str_sub(tmp1, a, tmp1);
+        str_mul(a, tmp1, t1);
+        str_free(tmp1);
+
+        sstring_t *tmp2 = str_new();
+        str_mul(a, a, tmp2);
+        str_mul(b, b, t2);
+        str_add(tmp2, t2, t2);
+        str_free(tmp2);
+
+        str_free(a);
+        a = str_new();
+        str_free(b);
+        b = str_new();
+
+        *a = str_assign(t1->value, t1->size);
+        *b = str_assign(t2->value, t2->size);
+        str_free(t1);
+        str_free(t2);
+
+        if (n & (1UL << i)) {
+            t1 = str_new();
+            str_add(a, b, t1);
+            str_free(a);
+            a = str_new();
+            *a = str_assign(b->value, b->size);
+
+            str_free(b);
+            b = str_new();
+            *b = str_assign(t1->value, t1->size);
+            str_free(t1);
+        }
+    }
+    *out = str_assign(a->value, a->size);
+    str_free(two);
+    str_free(a);
+    str_free(b);
+}
+
+sstring_t *fib_time_proxy(long long k)
+{
+    sstring_t *result = str_new();
+    kt = ktime_get();
+    fib_sequence(k, result);
+    kt = ktime_sub(ktime_get(), kt);
+
+    return result;
 }
 
 static int fib_open(struct inode *inode, struct file *file)
@@ -60,7 +119,18 @@ static ssize_t fib_read(struct file *file,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_sequence(*offset);
+    int error_count = 0;
+    sstring_t *sol = fib_time_proxy(*offset);
+    error_count = copy_to_user(buf, sol->value, sol->size);
+    str_free(sol);
+
+    if (error_count == 0) {
+        printk(KERN_INFO "Sent Fib to user_buffer\n");
+        return (ssize_t) ktime_to_ns(kt);
+    } else {
+        printk(KERN_INFO "Fail to send Fib to user_buffer\n");
+        return -EFAULT;
+    }
 }
 
 /* write operation is skipped */
@@ -69,7 +139,7 @@ static ssize_t fib_write(struct file *file,
                          size_t size,
                          loff_t *offset)
 {
-    return 1;
+    return (ssize_t) ktime_to_ns(kt);
 }
 
 static loff_t fib_device_lseek(struct file *file, loff_t offset, int orig)
