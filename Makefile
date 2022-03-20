@@ -34,9 +34,12 @@ client: client.c
 	$(CC) -o $@ $^
 
 time: client_ktime.c
+	$(MAKE) unload
+	$(MAKE) load
 	sudo sh performance.sh
 	$(CC) -o $@ $<
 	sudo taskset 0x1 ./time
+	$(MAKE) unload
 	gnuplot < runtime.gp
 
 PRINTF = env printf

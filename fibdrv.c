@@ -121,7 +121,7 @@ static ssize_t fib_read(struct file *file,
 {
     int error_count = 0;
     sstring_t *sol = fib_time_proxy(*offset);
-    error_count = copy_to_user(buf, sol->value, sol->size);
+    error_count = copy_to_user(buf, sol->value, sol->size + 1);
     str_free(sol);
 
     if (error_count == 0) {
