@@ -37,7 +37,7 @@ time: client_ktime.c
 	$(MAKE) unload
 	$(MAKE) load
 	sudo sh performance.sh
-	$(CC) -o $@ $<
+	$(CC) -g -o $@ $<
 	sudo taskset 0x1 ./time
 	$(MAKE) unload
 	gnuplot < runtime.gp
