@@ -6,8 +6,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/string.h>
 
-#include "sstring.h"
+#include "bn.h"
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -28,71 +29,51 @@ static DEFINE_MUTEX(fib_mutex);
 
 static ktime_t kt;
 
-void fib_sequence(long long n, sstring_t *out)
+void fib_sequence(long long k, bn_t **out)
 {
-    if (n == 0) {
-        *out = str_assign("0", 1);
-        return;
-    }
-    sstring_t *a = str_new();
-    sstring_t *b = str_new();
+    if (k >= 2) {
+        autofree bn_t *f1 = NULL, *f2 = NULL;
+        autofree bn_t *z0 = NULL;
+        assign(&z0, 0);
+        assign(&f1, 0);
+        assign(&f2, 1);
+        for (int i = 32 - __builtin_clz(k); i >= 0; --i) {
+            autofree bn_t *t1 = NULL, *t2 = NULL;
+            /* t2 = a^2 + b^2 */
+            mul(f1, f1, &t1);
+            mul(f2, f2, &t2);
+            add(t1, t2, &t2);
 
-    sstring_t *two = str_new();
-    *two = str_assign("2", 1);
+            /* t1 = a * (2b - a) */
+            add(f2, f2, &t1);
+            sub(t1, f1, &t1);
+            mul(t1, f1, &t1);
 
-    *a = str_assign("0", 1);
-    *b = str_assign("1", 1);
-
-    for (int i = 64 - __builtin_clzll(n); i >= 0; --i) {
-        sstring_t *tmp1 = str_new();
-        sstring_t *t1 = str_new();
-        sstring_t *t2 = str_new();
-
-        str_mul(b, two, tmp1);
-        str_sub(tmp1, a, tmp1);
-        str_mul(a, tmp1, t1);
-        str_free(tmp1);
-
-        sstring_t *tmp2 = str_new();
-        str_mul(a, a, tmp2);
-        str_mul(b, b, t2);
-        str_add(tmp2, t2, t2);
-        str_free(tmp2);
-
-        str_free(a);
-        a = str_new();
-        str_free(b);
-        b = str_new();
-
-        *a = str_assign(t1->value, t1->size);
-        *b = str_assign(t2->value, t2->size);
-        str_free(t1);
-        str_free(t2);
-
-        if (n & (1UL << i)) {
-            t1 = str_new();
-            str_add(a, b, t1);
-            str_free(a);
-            a = str_new();
-            *a = str_assign(b->value, b->size);
-
-            str_free(b);
-            b = str_new();
-            *b = str_assign(t1->value, t1->size);
-            str_free(t1);
+            add(z0, t1, &f1);
+            add(z0, t2, &f2);
+            if (k & (1 << i)) {
+                add(f1, f2, &t1);
+                add(z0, f2, &f1);
+                add(z0, t1, &f2);
+            }
         }
+        // display(f1);
+
+        *out = krealloc(*out, sizeof(bn_t) + f1->size * sizeof(uint32_t),
+                        GFP_KERNEL);
+        (*out)->size = f1->size;
+        for (int index = 0; index < f1->size; ++index)
+            (*out)->arr[index] = f1->arr[index];
+    } else {
+        assign(out, k);
     }
-    *out = str_assign(a->value, a->size);
-    str_free(two);
-    str_free(a);
-    str_free(b);
 }
 
-sstring_t *fib_time_proxy(long long k)
+bn_t *fib_time_proxy(long long k)
 {
-    sstring_t *result = str_new();
+    bn_t *result = NULL;
     kt = ktime_get();
-    fib_sequence(k, result);
+    fib_sequence(k, &result);
     kt = ktime_sub(ktime_get(), kt);
 
     return result;
@@ -120,9 +101,20 @@ static ssize_t fib_read(struct file *file,
                         loff_t *offset)
 {
     int error_count = 0;
-    sstring_t *sol = fib_time_proxy(*offset);
-    error_count = copy_to_user(buf, sol->value, sol->size + 1);
-    str_free(sol);
+    autofree bn_t *sol = fib_time_proxy(*offset);
+
+    int len = 0;
+    char sol_buf[256];
+    sol_buf[len] = '\0';
+
+    len += snprintf(sol_buf + len, 256 - len, "%u", sol->arr[0]);
+    for (size_t i = 1; i < sol->size; ++i) {
+        len += snprintf(sol_buf + len, 256 - len, "%0*u", MAX_LEN, sol->arr[i]);
+    }
+    sol_buf[len] = '\0';
+    printk(KERN_INFO "ANS >>>> %s\n", sol_buf);
+
+    error_count = copy_to_user(buf, sol_buf, strlen(sol_buf) + 1);
 
     if (error_count == 0) {
         printk(KERN_INFO "Sent Fib to user_buffer\n");

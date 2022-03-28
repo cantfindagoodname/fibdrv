@@ -1,7 +1,7 @@
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -18,32 +18,13 @@ int main()
     FILE *fp = fopen("time.txt", "w");
 
     int offset = 500;
-    char buf[256];
+    uint32_t buf[256];
 
     int fd = open(FIB_DEV, O_RDWR);
     if (fd < 0) {
         perror("Failed to open character device");
         exit(1);
     }
-
-    /*
-     * Kernel time, User time, Kernel to user time
-     * from 0 to offset
-    fprintf(fp, "n ktime(ns) utime(ns) ktutime(ns)\n");
-    for (int i = 0; i <= offset; i++) {
-        long long ksz, usz;
-        lseek(fd, i, SEEK_SET);
-
-        struct timespec ts1, ts2;
-        clock_gettime(CLOCK_MONOTONIC, &ts1);
-        read(fd, buf, 256);
-        clock_gettime(CLOCK_MONOTONIC, &ts2);
-
-        ksz = write(fd, NULL, 0);
-        usz = (long long)((ts2.tv_sec - ts1.tv_sec)*1e9 + (ts2.tv_nsec -
-    ts1.tv_nsec)); fprintf(fp, "%d %lld %lld %lld\n", i, ksz, usz, ksz-usz);
-    }
-    */
 
     fprintf(fp, "n ktime(ns)\n");
     unsigned long long ksz_arr[64];

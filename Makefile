@@ -6,7 +6,8 @@ ccflags-y := -std=gnu99 -Wno-declaration-after-statement
 
 _fibdrv-objs := \
 	fibdrv.o \
-	sstring.o
+    utils.o \
+    bn.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
